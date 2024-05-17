@@ -1,0 +1,126 @@
+#!/bin/bash
+
+NEW_HOSTNAME=robot
+
+sudo apt install -y python3-pip python3-venv
+
+# Access Point
+sudo apt install -y hostapd dnsmasq
+sudo rfkill unblock wlan
+
+AP_SSID=${NEW_HOSTNAME}
+AP_PASSWORD=password
+AP_CHANNEL=7
+AP_IP_PREFIX=192.168.5
+
+grep -qxF 'interface wlan0' /etc/dhcpcd.conf || \
+cat <<EOF | sudo tee -a /etc/dhcpcd.conf > /dev/null 
+interface wlan0
+    static ip_address=${AP_IP_PREFIX}.1/24
+    nohook wpa_supplicant
+EOF
+
+cat <<EOF | sudo tee /etc/dnsmasq.conf > /dev/null
+interface=wlan0
+dhcp-range=${AP_IP_PREFIX}.2,${AP_IP_PREFIX}.20,255.255.255.0,24h
+domain=wlan
+address=/gw.wlan/${AP_IP_PREFIX}.1
+EOF
+
+cat <<EOF | sudo tee /etc/hostapd/hostapd.conf > /dev/null 
+country_code=US
+interface=wlan0
+ssid=$AP_SSID
+hw_mode=g
+channel=$AP_CHANNEL
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=$AP_PASSWORD
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+EOF
+
+sudo systemctl unmask hostapd
+sudo systemctl enable hostapd
+
+# Network Router
+if [ -e /sys/class/net/eth0 ]; then
+sudo DEBIAN_FRONTEND=noninteractive apt install -y netfilter-persistent iptables-persistent
+
+cat <<EOF | sudo tee /etc/sysctl.d/routed-ap.conf > /dev/null 
+net.ipv4.ip_forward=1
+EOF
+
+sudo iptables -t nat -C POSTROUTING -o eth0 -j MASQUERADE &> /dev/null || \
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo netfilter-persistent save
+fi
+
+# Juypter Lab
+pip install --user jupyterlab
+
+JUPYTER_TOKEN=''
+JUPYTER_USER=$USER
+JUPYTER_GROUP=$USER
+JUPYTER_ROOT_DIR=$HOME/notebooks
+JUPYTER_CONFIG=$HOME/.jupyter/jupyter_lab_config.py
+JUPYTER_BIN=$(which jupyter-lab)
+
+mkdir -p $JUPYTER_ROOT_DIR
+
+cat <<EOF > $JUPYTER_CONFIG
+c = get_config()
+c.ServerApp.root_dir = '$JUPYTER_ROOT_DIR'
+c.ExtensionApp.open_browser = False
+c.ServerApp.ip = '0.0.0.0'
+c.ServerApp.token = '$JUPYTER_TOKEN'
+EOF
+
+cat <<EOF | sudo tee /etc/systemd/system/jupyter.service > /dev/null 
+[Unit]
+Description=Jupyter Lab
+
+[Service]
+Type=simple
+PIDFile=/run/jupyter.pid
+ExecStart=/bin/bash -c "$JUPYTER_BIN --config $JUPYTER_CONFIG"
+User=$JUPYTER_USER
+Group=$JUPYTER_USER
+WorkingDirectory=$JUPYTER_ROOT_DIR
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable jupyter.service
+
+# OpenCV
+sudo apt install -y python3-opencv
+
+# Flask
+pip install --user flask
+
+# Python Virtual Envs
+ENV_ROOT=$HOME/envs
+
+mkdir -p $ENV_ROOT
+python3 -m venv $ENV_ROOT/create2 --system-site-packages
+source $ENV_ROOT/create2/bin/activate
+pip install pycreate2 ipykernel
+python -m ipykernel install --user --name=Create2
+deactivate
+
+# Hostname
+CURRENT_HOSTNAME=$(cat /etc/hostname)
+if [ "$NEW_HOSTNAME" != "$CURRENT_HOSTNAME" ]; then
+    sudo echo $NEW_HOSTNAME | sudo tee /etc/hostname > /dev/null
+    sudo sed -i "/127.0.1.1/s/$CURRENT_HOSTNAME/$NEW_HOSTNAME/" /etc/hosts
+fi
+
+# Created by Adam Munch 2023
