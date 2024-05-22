@@ -1,4 +1,4 @@
-# Create2-Pi
+# Create2π
 ## Everything you need to get started using a Rasqberry Pi to controll a iRobot Create2 educational robot
 
 ### Setup script
