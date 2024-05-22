@@ -123,4 +123,6 @@ if [ "$NEW_HOSTNAME" != "$CURRENT_HOSTNAME" ]; then
     sudo sed -i "/127.0.1.1/s/$CURRENT_HOSTNAME/$NEW_HOSTNAME/" /etc/hosts
 fi
 
-# Created by Adam Munch 2023
+# Python Libraries
+pip3 install pycreate2
+pip3 install pyPS4Controller

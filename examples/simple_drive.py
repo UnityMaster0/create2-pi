@@ -7,5 +7,6 @@ bot.safe()
 
 bot.drive_direct(10, 10)
 sleep(5)
+bot.drive_stop()
 
 bot.stop()
